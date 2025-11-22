@@ -1,40 +1,40 @@
-# ----- IMAGE PHP + APACHE -----
+# ----- PHP + APACHE -----
 FROM php:8.2-apache
 
-# ----- INSTALL EXTENSIONS NÉCESSAIRES -----
+# ----- INSTALL EXTENSIONS -----
 RUN apt-get update && apt-get install -y \
-    libzip-dev unzip && \
+    libzip-dev unzip git && \
     docker-php-ext-install mysqli pdo pdo_mysql zip
 
-# ----- ACTIVER MOD_REWRITE POUR CI4 -----
+# ----- ENABLE APACHE REWRITE -----
 RUN a2enmod rewrite
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 
-# ----- INSTALLER COMPOSER -----
+# ----- INSTALL COMPOSER -----
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# ----- COPIER LE PROJET -----
+# ----- COPY PROJECT -----
 COPY . /var/www/html
 
-# ----- INSTALLATION DEPENDANCES -----
-RUN composer install --no-dev --optimize-autoloader
-
-# ----- DONNER LES PERMISSIONS POUR writable/ -----
-RUN chown -R www-data:www-data /var/www/html/writable
+# ----- FIX PERMISSIONS -----
+RUN chown -R www-data:www-data /var/www/html
 RUN chmod -R 775 /var/www/html/writable
 
-# ----- CONFIG DOCUMENT ROOT -----
-WORKDIR /var/www/html/public
+# ----- INSTALL DEPENDENCIES -----
+WORKDIR /var/www/html
+RUN composer install --no-interaction --prefer-dist --no-dev
+RUN composer dump-autoload --optimize
 
-# Render utilise le PORT environment variable
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+# ----- SET DOCUMENT ROOT TO /public -----
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
-# Modifier Apache pour pointer vers /public
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/!/var/www/html/public!g' /etc/apache2/apache2.conf
+RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' \
+    /etc/apache2/sites-available/*.conf
 
-# ----- PORT -----
+RUN sed -ri -e 's!/var/www/!/var/www/html/public!g' \
+    /etc/apache2/apache2.conf
+
+# ----- EXPOSE -----
 EXPOSE 8080
 
-# ----- START APACHE -----
 CMD ["apache2-foreground"]
