@@ -1,40 +1,56 @@
-# ---- STAGE 1 : BUILD ----
-FROM composer:2 AS vendor
+# ===================================================
+# STAGE 1 : BUILDER (Compilation et installation des dépendances)
+# ===================================================
+# Utilise une image PHP Alpine avec FPM (FastCGI Process Manager)
+FROM php:8.4-fpm-alpine AS builder
 
+# Installe les dépendances système nécessaires pour PHP, Composer et Git
+# apk est le gestionnaire de paquets d'Alpine
+RUN apk add --no-cache \
+    git \
+    icu-dev # Requis pour l'extension intl
+
+# Installe les extensions PHP requises par CodeIgniter 4 et votre projet
+# docker-php-ext-install est un script helper fourni par l'image officielle PHP
+RUN docker-php-ext-install \
+    intl \
+    pdo_mysql # Ajoutez d'autres extensions ici si nécessaire (ex: gd, zip, opcache)
+
+# Définit le répertoire de travail dans le conteneur
 WORKDIR /app
+
+# Copie uniquement les fichiers de gestion des dépendances
 COPY composer.json composer.lock ./
 
-# Ignore ext-intl if missing (optionnel)
-RUN composer install --no-dev --prefer-dist --optimize-autoloader || composer install --no-dev --prefer-dist --optimize-autoloader --ignore-platform-req=ext-intl
+# Exécute l'installation de Composer
+# L'extension intl est maintenant disponible, donc cela ne devrait plus échouer
+RUN composer install --no-dev --prefer-dist --optimize-autoloader
 
-# ---- STAGE 2 : RUNTIME ----
-FROM php:8.2-apache
+# ===================================================
+# STAGE 2 : RUNTIME (Environnement d'exécution final)
+# ===================================================
+# Utilise la même image de base propre pour le runtime
+FROM php:8.4-fpm-alpine AS runtime
 
-# Enable Apache rewrite
-RUN a2enmod rewrite
+# Installe les extensions nécessaires pour l'exécution (elles doivent être les mêmes que dans le builder)
+RUN apk add --no-cache icu-dev \
+    && docker-php-ext-install intl pdo_mysql
 
-# Install required PHP extensions
-RUN apt-get update && apt-get install -y \
-    git unzip zip libzip-dev libonig-dev libicu-dev \
- && docker-php-ext-install mysqli pdo pdo_mysql zip intl
+WORKDIR /app
 
-# Set working directory
-WORKDIR /var/www/html
-
-# Copy project files
+# Copie tous les fichiers du répertoire de travail local vers le conteneur
+# Assurez-vous que le reste de votre code source est présent localement
 COPY . .
 
-# Copy vendor from builder
-COPY --from=vendor /app/vendor ./vendor
+# Copie les dépendances installées par Composer depuis le stage 'builder'
+COPY --from=builder /app/vendor vendor
 
-# Permissions for writable folder
-RUN chown -R www-data:www-data writable \
-    && chmod -R 775 writable
+# Configure les permissions pour les dossiers de cache et de logs de CodeIgniter
+# Cela permet au serveur web (souvent www-data dans Alpine) d'écrire dans ces dossiers
+RUN chown -R www-data:www-data writable/cache writable/logs writable/sessions writable/uploads
 
-# Apache document root
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
-    /etc/apache2/sites-available/000-default.conf
+# Expose le port par défaut de PHP-FPM
+EXPOSE 9000
 
-EXPOSE 80
-CMD ["apache2-foreground"]
+# Commande par défaut pour démarrer PHP-FPM
+CMD ["php-fpm", "-F"]
