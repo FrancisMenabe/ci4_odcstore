@@ -1,40 +1,34 @@
-# ----- PHP + APACHE -----
+# ---- STAGE 1 : BUILD ----
+FROM composer:2 AS vendor
+
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --prefer-dist --optimize-autoloader
+
+# ---- STAGE 2 : RUNTIME ----
 FROM php:8.2-apache
 
-# ----- INSTALL EXTENSIONS -----
-RUN apt-get update && apt-get install -y \
-    libzip-dev unzip git && \
-    docker-php-ext-install mysqli pdo pdo_mysql zip
-
-# ----- ENABLE APACHE REWRITE -----
+# Enable Apache mod_rewrite
 RUN a2enmod rewrite
-RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 
-# ----- INSTALL COMPOSER -----
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Install PHP extensions
+RUN docker-php-ext-install mysqli pdo pdo_mysql
 
-# ----- COPY PROJECT -----
-COPY . /var/www/html
-
-# ----- FIX PERMISSIONS -----
-RUN chown -R www-data:www-data /var/www/html
-RUN chmod -R 775 /var/www/html/writable
-
-# ----- INSTALL DEPENDENCIES -----
+# Set working directory
 WORKDIR /var/www/html
-RUN composer install --no-interaction --prefer-dist --no-dev
-RUN composer dump-autoload --optimize
 
-# ----- SET DOCUMENT ROOT TO /public -----
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+# Copy CodeIgniter project files
+COPY . .
 
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' \
-    /etc/apache2/sites-available/*.conf
+# Copy vendor from builder stage
+COPY --from=vendor /app/vendor ./vendor
 
-RUN sed -ri -e 's!/var/www/!/var/www/html/public!g' \
-    /etc/apache2/apache2.conf
+# Permissions for writable folder
+RUN chown -R www-data:www-data writable \
+    && chmod -R 775 writable
 
-# ----- EXPOSE -----
-EXPOSE 8080
+# Expose port 80
+EXPOSE 80
 
+# Start Apache
 CMD ["apache2-foreground"]

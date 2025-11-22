@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: odcstore
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: CI_ENVIRONMENT
+        value: production
+      - key: APP_URL
+        value: https://odcstore.onrender.com
